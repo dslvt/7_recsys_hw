@@ -1,0 +1,4 @@
+# MovieLens license: do not distribute the archive or generated splits.
+/data/
+/ml-100k.zip
+__pycache__/
