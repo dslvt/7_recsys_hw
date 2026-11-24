@@ -1,4 +1,4 @@
-"""Fit on train histories and evaluate on validation unless explicitly asked for test."""
+"""Evaluate a fitted or checkpoint-backed recommender on validation by default."""
 import argparse
 from collections import Counter
 import json
@@ -11,7 +11,6 @@ Examples = list[tuple[list[int], int]]
 
 
 class Recommender(Protocol):
-    def fit(self, catalog: Catalog, histories: list[list[int]], epochs: int = 1) -> Self: ...
     def recommend(self, history: list[int], k: int) -> list[int]: ...
 
 
@@ -40,22 +39,34 @@ def load_data(directory: Path, splits: tuple[str, ...]) -> tuple[Catalog, list[l
     return catalog, histories, {name: split(name) for name in splits}
 
 
-def evaluate(model: Recommender, examples: Examples) -> dict[str, float]:
-    hits, gain = 0, 0.0
-    for history, target in examples:
-        ranked = model.recommend(history, k=10)[:10]
+def evaluate(model: Recommender, examples: Examples, catalog: Catalog | None = None) -> dict[str, float]:
+    hits_by_rank = Counter()
+    for query, (history, target) in enumerate(examples, start=1):
+        ranked = model.recommend(history, k=10)
+        if (not isinstance(ranked, list) or len(ranked) > 10
+                or any(type(item) is not int for item in ranked)
+                or len(set(ranked)) != len(ranked)):
+            raise ValueError(f'query {query}: recommend must return a list of up to 10 distinct integer IDs')
+        if catalog is not None and (len(ranked) != min(10, len(catalog))
+                                    or any(item not in catalog for item in ranked)):
+            raise ValueError(f'query {query}: recommend must return min(10, catalog size) catalog IDs')
         if target in ranked:
-            rank = 1 + ranked.index(target)
-            hits += 1
-            gain += 1 / math.log2(rank + 1)
+            hits_by_rank[1 + ranked.index(target)] += 1
     count = len(examples) or 1  # Empty splits report zeros.
-    return {'Recall@10': hits / count, 'NDCG@10': gain / count}
+    scores = {}
+    for k in (5, 10):
+        ranks = range(1, k + 1)
+        scores[f'Recall@{k}'] = sum(hits_by_rank[r] for r in ranks) / count
+        scores[f'NDCG@{k}'] = math.fsum(hits_by_rank[r] / math.log2(r + 1) for r in ranks) / count
+    return scores
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--model', choices=('baseline', 'tiger'), default='baseline')
-    parser.add_argument('--data-dir', type=Path, default=Path(__file__).resolve().parent / 'data')
+    root = Path(__file__).resolve().parent
+    parser.add_argument('--model', choices=('baseline', 'tiger', 'sasrec', 'bert4rec'), default='baseline')
+    parser.add_argument('--data-dir', type=Path, default=root / 'data')
+    parser.add_argument('--checkpoint-dir', type=Path, default=root / 'checkpoints')
     parser.add_argument('--epochs', type=int, default=1)
     parser.add_argument('--split', choices=('val', 'test', 'both'), default='val')
     parser.add_argument('--seed', type=int, default=42)
@@ -63,17 +74,21 @@ def main() -> None:
     splits = ('val', 'test') if args.split == 'both' else (args.split,)
     catalog, histories, queries = load_data(args.data_dir, splits)
     model: Recommender
-    if args.model == 'tiger':
-        from submission import TIGER
-        model = TIGER(seed=args.seed)
-    else:
-        model = Popularity()
     try:
-        model.fit(catalog, histories, epochs=args.epochs)
-        scores = {name: evaluate(model, examples) for name, examples in queries.items()}
+        if args.model in ('sasrec', 'bert4rec'):
+            from seq_baselines import load_baseline
+            model = load_baseline(args.model, args.checkpoint_dir, catalog)
+        elif args.model == 'tiger':
+            from submission import TIGER
+            model = TIGER(seed=args.seed).fit(catalog, histories, epochs=args.epochs)
+        else:
+            model = Popularity().fit(catalog, histories)
+        scores = {name: evaluate(model, examples, catalog) for name, examples in queries.items()}
     except NotImplementedError as exc:
-        parser.exit(2, f'TIGER is unfinished: {exc}\n')
-    print(json.dumps(scores, indent=2))
+        parser.exit(2, f'{args.model} is unfinished: {exc}\n')
+    except ValueError as exc:
+        parser.error(str(exc))
+    print(json.dumps(scores, indent=2, allow_nan=False))
 
 
 if __name__ == '__main__':
