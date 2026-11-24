@@ -36,8 +36,8 @@ for seq in train.values():
 
 ## Feature layout (35 floats)
 
-- Coordinates 0–18: the 19 binary genre flags from `u.item` in source order, including `unknown` at index 0. Cast each to `0.0` or `1.0`.
-- Coordinates 19–34: 16 title-token presence flags. Lowercase the raw title bytes using ASCII rules and take maximal `[a-z0-9]+` tokens, including any year. Set bucket `sha256(token).digest()[0] % 16` to `1.0`; repetitions and collisions count once. All other buckets are `0.0`.
+- Coordinates 0 through 18: the 19 binary genre flags from `u.item` in source order, including `unknown` at index 0. Cast each to `0.0` or `1.0`.
+- Coordinates 19 through 34: 16 title-token presence flags. Lowercase the raw title bytes using ASCII rules and take maximal `[a-z0-9]+` tokens, including any year. Set bucket `sha256(token).digest()[0] % 16` to `1.0`; repetitions and collisions count once. All other buckets are `0.0`.
 
 No rating, timestamp, popularity, learned vocabulary, or split-dependent statistic enters the vector. JSON is compact ASCII with one trailing LF, including on Windows.
 
