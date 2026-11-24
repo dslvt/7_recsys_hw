@@ -78,8 +78,17 @@ def test_baseline_cli(tmp_path: Path) -> None:
     assert json.loads(val_only) == {'val': scores['val']}
 
 
-@pytest.mark.parametrize('name,custom_dir', [('sasrec', False), ('bert4rec', True)])
-def test_checkpoint_cli_loads_once_without_fit(tmp_path, name, custom_dir):
+def test_cli_rejects_unknown_model():
+    result = subprocess.run([sys.executable, str(ROOT / 'run.py'), '--model', 'unknown'],
+                            text=True, capture_output=True)
+    assert result.returncode == 2 and not result.stdout
+    assert 'invalid choice' in result.stderr
+    assert '{baseline,tiger,bert4rec}' in result.stderr
+
+
+@pytest.mark.parametrize('custom_dir', [False, True])
+def test_checkpoint_cli_loads_once_without_fit(tmp_path, custom_dir):
+    name = 'bert4rec'
     # Run a copy so the temporary loader wins even if seq_baselines is installed.
     bundle = tmp_path / 'bundle'
     bundle.mkdir()

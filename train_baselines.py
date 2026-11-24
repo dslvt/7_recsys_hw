@@ -1,7 +1,7 @@
-"""Offline fit and evaluation. fit never opens test.json.
+"""Обучение и проверка BERT4Rec. При обучении файл test.json не нужен.
 
 python train_baselines.py fit --device cuda --out new_run
-python train_baselines.py test --out new_run  # only after freezing both checkpoints
+python train_baselines.py test --out new_run  # после выбора весов по валидации
 """
 import argparse
 import hashlib
@@ -30,22 +30,19 @@ def write(path, obj):
 
 
 def windows(model, histories):
-    """Disjoint target chunks; SAS carries the preceding item across boundaries."""
+    """Разбить каждую историю на непересекающиеся окна."""
     width = model.length
     rows = []
     for history in histories:
         seq = [model.index[i] for i in history]
-        causal = model.name == 'sasrec'
-        for start in range(0, len(seq) - int(causal), width):
-            row = seq[start:start + width + int(causal)]
-            rows.append(row + [0] * (width + int(causal) - len(row)))
+        for start in range(0, len(seq), width):
+            row = seq[start:start + width]
+            rows.append(row + [0] * (width - len(row)))
     return torch.tensor(rows, dtype=torch.long)
 
 
 def objective_inputs(model, rows):
-    if model.name == 'sasrec':
-        return rows[:, :-1], rows[:, 1:]
-    # Dynamic Cloze masking. Force an end mask on otherwise unsupervised chunks.
+    # Если в окне не выбран ни один фильм, скрываем последний.
     selected = (torch.rand(rows.shape, device=rows.device) < 0.2) & rows.ne(0)
     ends = rows.ne(0).sum(1) - 1
     empty = ~selected.any(1)
@@ -126,7 +123,7 @@ def fit(name, data, out, epochs=30, seed=42, device='cpu'):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=('fit', 'val', 'test'))
-    parser.add_argument('--model', choices=(*NAMES, 'both'), default='both')
+    parser.add_argument('--model', choices=NAMES, default='bert4rec')
     parser.add_argument('--data', type=Path, default=Path('data'))
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--device', choices=('cpu', 'cuda'), default='cpu')
@@ -134,17 +131,17 @@ def main():
     parser.add_argument('--seed', type=int, default=42)
     args = parser.parse_args()
     torch.set_num_threads(2)
-    for name in NAMES if args.model == 'both' else (args.model,):
-        if args.mode == 'fit':
-            fit(name, args.data, args.out, args.epochs, args.seed, args.device)
-        else:
-            catalog = {int(i): v for i, v in read(args.data, 'catalog').items()}
-            model = load_baseline(name, args.out, catalog).to(args.device)
-            examples = read(args.data, args.mode)
-            print(json.dumps(dict(model=name, split=args.mode, count=len(examples),
-                                  checkpoint_sha256=digest(args.out / (name + '.pt')),
-                                  split_sha256=digest(args.data / (args.mode + '.json')),
-                                  metrics=evaluate(model, examples))))
+    name = args.model
+    if args.mode == 'fit':
+        fit(name, args.data, args.out, args.epochs, args.seed, args.device)
+    else:
+        catalog = {int(i): v for i, v in read(args.data, 'catalog').items()}
+        model = load_baseline(name, args.out, catalog).to(args.device)
+        examples = read(args.data, args.mode)
+        print(json.dumps(dict(model=name, split=args.mode, count=len(examples),
+                              checkpoint_sha256=digest(args.out / (name + '.pt')),
+                              split_sha256=digest(args.data / (args.mode + '.json')),
+                              metrics=evaluate(model, examples))))
 
 
 if __name__ == '__main__':

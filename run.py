@@ -64,7 +64,7 @@ def evaluate(model: Recommender, examples: Examples, catalog: Catalog | None = N
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     root = Path(__file__).resolve().parent
-    parser.add_argument('--model', choices=('baseline', 'tiger', 'sasrec', 'bert4rec'), default='baseline')
+    parser.add_argument('--model', choices=('baseline', 'tiger', 'bert4rec'), default='baseline')
     parser.add_argument('--data-dir', type=Path, default=root / 'data')
     parser.add_argument('--checkpoint-dir', type=Path, default=root / 'checkpoints')
     parser.add_argument('--epochs', type=int, default=1)
@@ -75,7 +75,7 @@ def main() -> None:
     catalog, histories, queries = load_data(args.data_dir, splits)
     model: Recommender
     try:
-        if args.model in ('sasrec', 'bert4rec'):
+        if args.model == 'bert4rec':
             from seq_baselines import load_baseline
             model = load_baseline(args.model, args.checkpoint_dir, catalog)
         elif args.model == 'tiger':

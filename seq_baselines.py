@@ -1,14 +1,10 @@
-"""Item-ID sequential baselines. Token 0 pads; tokens 1..N are sorted catalog IDs.
-
-SASRec uses a causal next-item objective; BERT4Rec uses bidirectional Cloze.
-Both use learned positions and tied full-catalog softmax, not sampled evaluation.
-"""
+"""BERT4Rec. Токен 0 задаёт отступ, токены от 1 до N обозначают фильмы по порядку ID."""
 from pathlib import Path
 import torch
 from torch import nn
 from torch.nn import functional as F
 
-NAMES = ('sasrec', 'bert4rec')
+NAMES = ('bert4rec',)
 
 
 class SeqModel(nn.Module):
@@ -18,7 +14,7 @@ class SeqModel(nn.Module):
             raise ValueError('expected a supported model and sorted unique catalog IDs')
         self.name, self.ids = name, list(ids)
         self.index = {item: i + 1 for i, item in enumerate(ids)}
-        self.mask = len(ids) + 1  # SASRec uses this special token only on empty input.
+        self.mask = len(ids) + 1
         self.config = dict(width=width, length=length, heads=heads, layers=layers, dropout=dropout)
         self.length = length
         self.items = nn.Embedding(len(ids) + 2, width, padding_idx=0)
@@ -29,7 +25,7 @@ class SeqModel(nn.Module):
             nn.TransformerEncoderLayer(width, heads, width * 4, dropout, 'gelu',
                                        batch_first=True, norm_first=True) for _ in range(layers)])
         self.norm = nn.LayerNorm(width)
-        self.head = nn.Sequential(nn.Linear(width, width), nn.GELU(), nn.LayerNorm(width)) if name == 'bert4rec' else nn.Identity()
+        self.head = nn.Sequential(nn.Linear(width, width), nn.GELU(), nn.LayerNorm(width))
         self.bias = nn.Parameter(torch.zeros(len(ids)))
         nn.init.normal_(self.items.weight, std=0.02)
         nn.init.normal_(self.positions.weight, std=0.02)
@@ -40,10 +36,9 @@ class SeqModel(nn.Module):
         length = tokens.size(1)
         pos = torch.arange(length, device=tokens.device)
         x = self.dropout(self.input_norm(self.items(tokens) + self.positions(pos)))
-        causal = (pos[:, None] < pos[None, :]) if self.name == 'sasrec' else None
         pad = tokens.eq(0)
         for layer in self.blocks:
-            x = layer(x, src_mask=causal, src_key_padding_mask=pad)
+            x = layer(x, src_key_padding_mask=pad)
         return self.norm(x)
 
     def logits(self, hidden):
@@ -51,9 +46,8 @@ class SeqModel(nn.Module):
 
     def query_tokens(self, history):
         tokens = [self.index[i] for i in history[-self.length:]]
-        if self.name == 'bert4rec':
-            tokens.append(self.mask)
-        return tokens[-self.length:] or [self.mask]
+        tokens.append(self.mask)
+        return tokens[-self.length:]
 
     @torch.inference_mode()
     def rank_batch(self, histories, k):

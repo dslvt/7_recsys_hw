@@ -6,7 +6,6 @@
 python3.11 -m pip install -r requirements.txt
 python3.11 -m pytest -q tests/test_public.py
 python3.11 run.py --model baseline
-python3.11 run.py --model sasrec
 python3.11 run.py --model bert4rec
 ```
 
@@ -18,7 +17,7 @@ python3.11 run.py --model bert4rec
 |---|---|
 | `baseline` (по умолчанию) | Считает частоту фильмов в обучающих историях, включая повторы. Сортирует весь каталог по убыванию частоты, а при равенстве по возрастанию числового ID. |
 | `tiger` | Один раз вызывает `fit` для вашей модели. Передаёт каталог, обучающие истории и число эпох. |
-| `sasrec`, `bert4rec` | Один раз загружает готовую модель из `checkpoints/` рядом с `run.py`. Не вызывает `fit`, даже при `--split both`. Другую папку с весами можно указать через `--checkpoint-dir`. |
+| `bert4rec` | Один раз загружает готовую модель из `checkpoints/` рядом с `run.py`. Не вызывает `fit`, даже при `--split both`. Другую папку с весами можно указать через `--checkpoint-dir`. |
 
 ## Данные и метрики
 
